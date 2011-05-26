@@ -33,11 +33,7 @@ class StateMachine(object):
     __metaclass__ = MetaStateMachine
 
     def __init__(self):
-        self.__class__._validate_machine_definitions()
-        if callable(self.initial_state):
-            self.initial_state = self.initial_state()
-        self.current_state = self.initial_state
-        self._handle_state_action(self.initial_state, 'enter')
+        self._initialize_state_machine()
 
     def __new__(cls, *args, **kwargs):
         obj = super(StateMachine, cls).__new__(cls)
@@ -45,12 +41,22 @@ class StateMachine(object):
         obj._transitions = {}
         return obj
 
+    def _initialize_state_machine(self):
+        self.__class__._validate_machine_definitions()
+        self._init_states()
+
     @classmethod
     def _validate_machine_definitions(cls):
         if not getattr(cls, '_class_states', None) or len(cls._class_states) < 2:
             raise InvalidConfiguration('There must be at least two states')
         if not getattr(cls, 'initial_state', None):
             raise InvalidConfiguration('There must exist an initial state')
+
+    def _init_states(self):
+        if callable(self.initial_state):
+            self.initial_state = self.initial_state()
+        self.current_state = self.initial_state
+        self._handle_state_action(self.initial_state, 'enter')
 
     @classmethod
     def _add_class_state(cls, name, enter, exit):
