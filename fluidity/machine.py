@@ -1,3 +1,4 @@
+import re
 from fluidity.backwardscompat import callable
 
 # metaclass implementation idea from
@@ -40,6 +41,7 @@ class StateMachine(StateMachineBase):
             self.initial_state = self.initial_state()
         self.current_state = self.initial_state
         self._handle_state_action(self.initial_state, 'enter')
+        self._create_state_getters()
 
     def __new__(cls, *args, **kwargs):
         obj = super(StateMachine, cls).__new__(cls)
@@ -75,6 +77,16 @@ class StateMachine(StateMachineBase):
         this_event = self.__class__._generate_event(event)
         setattr(self, this_event.__name__,
             this_event.__get__(self, self.__class__))
+
+
+    def _create_state_getters(self):
+        for state_name in self.states():
+            self._create_state_getter_for(state_name)
+
+    def _create_state_getter_for(self, state_name):
+        def state_getter(self_object):
+            return self_object.current_state == state_name
+        setattr(self, 'is_%s' % state_name, state_getter.__get__(self, self.__class__))
 
     @classmethod
     def _generate_event(cls, name):
