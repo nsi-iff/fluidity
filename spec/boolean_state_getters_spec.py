@@ -24,3 +24,14 @@ class BooleanStateGettersSpec(unittest.TestCase):
         guy |should_not| be_looking
         guy |should| be_falling
 
+    def it_has_boolean_getters_for_individual_states(self):
+        guy = JumperGuy()
+        guy.add_state('squashed')
+        guy |should| respond_to('is_squashed')
+        guy |should_not| be_squashed
+
+        guy.add_transition(from_='falling', event='land', to='squashed')
+        guy.jump()
+        guy.land()
+        guy |should| be_squashed
+

@@ -62,6 +62,7 @@ class StateMachine(StateMachineBase):
 
     def add_state(self, name, enter=None, exit=None):
         self._states[name] = _State(name, enter, exit)
+        self._create_state_getter_for(name)
 
     def states(self):
         return list(self.__class__._class_states.keys()) + list(self._states.keys())
