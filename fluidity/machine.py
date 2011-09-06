@@ -62,10 +62,13 @@ class StateMachine(StateMachineBase):
 
     def add_state(self, name, enter=None, exit=None):
         self._states[name] = _State(name, enter, exit)
-        self._create_state_getter_for(name)
+        self._states[name].create_getter_for(self)
+
+    def _state_objects(self):
+        return list(self.__class__._class_states.values()) + list(self._states.values())
 
     def states(self):
-        return list(self.__class__._class_states.keys()) + list(self._states.keys())
+        return [s.name for s in self._state_objects()]
 
     @classmethod
     def _add_class_transition(cls, event, from_, to, action, guard):
@@ -79,15 +82,9 @@ class StateMachine(StateMachineBase):
         setattr(self, this_event.__name__,
             this_event.__get__(self, self.__class__))
 
-
     def _create_state_getters(self):
-        for state_name in self.states():
-            self._create_state_getter_for(state_name)
-
-    def _create_state_getter_for(self, state_name):
-        def state_getter(self_object):
-            return self_object.current_state == state_name
-        setattr(self, 'is_%s' % state_name, state_getter.__get__(self, self.__class__))
+        for state in self._state_objects():
+            state.create_getter_for(self)
 
     @classmethod
     def _generate_event(cls, name):
@@ -199,6 +196,11 @@ class _State(object):
         self.name = name
         self.enter = enter
         self.exit = exit
+
+    def create_getter_for(self, objekt):
+        def state_getter(self_object):
+            return self_object.current_state == self.name
+        setattr(objekt, 'is_%s' % self.name, state_getter.__get__(objekt, objekt.__class__))
 
 
 class InvalidConfiguration(Exception):
