@@ -112,12 +112,12 @@ class StateMachine(StateMachineBase):
                 return state
 
     def _transitions_by_name(self, name):
-        return filter(lambda transition: transition.event == name, self._transitions)
+        return list(filter(lambda transition: transition.event == name, self._transitions))
 
     def _ensure_from_validity(self, transitions):
-        valid_transitions = filter(
+        valid_transitions = list(filter(
           lambda transition: transition.is_valid_from(self._current_state_object),
-          transitions)
+          transitions))
         if len(valid_transitions) == 0:
             raise InvalidTransition("Cannot %s from %s" % (
                 transitions[0].event, self.current_state))
