@@ -108,7 +108,7 @@ class StateMachine(StateMachineBase):
     def _check_guards(self, transitions):
         allowed_transitions = []
         for transition in transitions:
-            if self._check_guard(transition.guard):
+            if transition.check_guard(self):
                 allowed_transitions.append(transition)
         if len(allowed_transitions) == 0:
             raise GuardNotSatisfied("Guard is not satisfied for this transition")
@@ -154,24 +154,6 @@ class StateMachine(StateMachineBase):
             else:
                 action()
 
-    def _check_guard(self, guard_param):
-        if guard_param is None:
-            return True
-        guard_items = _listize(guard_param)
-        result = True
-        for guard_item in guard_items:
-            result = result and self._evaluate_guard(guard_item)
-        return result
-
-    def _evaluate_guard(self, guard):
-        if callable(guard):
-            return guard(self)
-        else:
-            guard = getattr(self, guard)
-            if callable(guard):
-                guard = guard()
-            return guard
-
 
 class _Transition(object):
 
@@ -180,7 +162,7 @@ class _Transition(object):
         self.from_ = from_
         self.to = to
         self.action = action
-        self.guard = guard
+        self.guard = _Guard(guard)
 
     def generate_event_for(self, machine):
         this_event = self._generate_event(self.event)
@@ -199,6 +181,33 @@ class _Transition(object):
 
     def is_valid_from(self, from_):
         return from_ in _listize(self.from_)
+
+    def check_guard(self, machine):
+        return self.guard.check_for(machine)
+
+
+class _Guard(object):
+
+    def __init__(self, action):
+        self.action = action
+
+    def check_for(self, machine):
+        if self.action is None:
+            return True
+        items = _listize(self.action)
+        result = True
+        for item in items:
+            result = result and self._evaluate(item, machine)
+        return result
+
+    def _evaluate(self, item, machine):
+        if callable(item):
+            return item(machine)
+        else:
+            guard = getattr(machine, item)
+            if callable(guard):
+                guard = guard()
+            return guard
 
 
 class _State(object):
