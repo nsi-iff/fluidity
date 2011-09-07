@@ -41,6 +41,7 @@ class StateMachine(StateMachineBase):
         if callable(self.initial_state):
             self.initial_state = self.initial_state()
         self.current_state = self.initial_state
+        self._action_runner = _ActionRunner(self)
         self._handle_state_action(self.initial_state, 'enter')
         self._create_state_getters()
 
@@ -127,32 +128,10 @@ class StateMachine(StateMachineBase):
             action = getattr(self._class_states[state], kind)
         except KeyError:
             action = getattr(self._states[state], kind)
-        self._run_action_or_list(action)
+        self._action_runner.run(action)
 
     def _handle_action(self, action, *args, **kwargs):
-        self._run_action_or_list(action, *args, **kwargs)
-
-    def _run_action_or_list(self, action_param, *args, **kwargs):
-        if not action_param:
-            return
-        action_items = _listize(action_param)
-        for action_item in action_items:
-            self._run_action(action_item, *args, **kwargs)
-
-    def _run_action(self, action, *args, **kwargs):
-        if callable(action):
-            self._try_to_run_with_args(action, self, *args, **kwargs)
-        else:
-            self._try_to_run_with_args(getattr(self, action), *args, **kwargs)
-
-    def _try_to_run_with_args(self, action, *args, **kwargs):
-        try:
-            action(*args, **kwargs)
-        except TypeError:
-            if len(args) > 0 and args[0] == self:
-                action(self)
-            else:
-                action()
+        self._action_runner.run(action, *args, **kwargs)
 
 
 class _Transition(object):
@@ -221,6 +200,34 @@ class _State(object):
         def state_getter(self_object):
             return self_object.current_state == self.name
         setattr(objekt, 'is_%s' % self.name, state_getter.__get__(objekt, objekt.__class__))
+
+
+class _ActionRunner(object):
+
+    def __init__(self, machine):
+        self.machine = machine
+
+    def run(self, action_param, *args, **kwargs):
+        if not action_param:
+            return
+        action_items = _listize(action_param)
+        for action_item in action_items:
+            self._run_action(action_item, *args, **kwargs)
+
+    def _run_action(self, action, *args, **kwargs):
+        if callable(action):
+            self._try_to_run_with_args(action, self.machine, *args, **kwargs)
+        else:
+            self._try_to_run_with_args(getattr(self.machine, action), *args, **kwargs)
+
+    def _try_to_run_with_args(self, action, *args, **kwargs):
+        try:
+            action(*args, **kwargs)
+        except TypeError:
+            if len(args) > 0 and args[0] == self:
+                action(self.machine)
+            else:
+                action()
 
 
 class InvalidConfiguration(Exception):
