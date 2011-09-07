@@ -41,8 +41,7 @@ class StateMachine(StateMachineBase):
         if callable(self.initial_state):
             self.initial_state = self.initial_state()
         self._current_state_object = self._state_by_name(self.initial_state)
-        self._action_runner = _ActionRunner(self)
-        self._handle_state_action(self.initial_state, 'enter')
+        self._current_state_object.run_enter(self)
         self._create_state_getters()
 
     def __new__(cls, *args, **kwargs):
@@ -131,16 +130,6 @@ class StateMachine(StateMachineBase):
         elif len(allowed_transitions) > 1:
             raise ForkedTransition("More than one transition was allowed for this event")
         return allowed_transitions[0]
-
-    def _handle_state_action(self, state, kind):
-        try:
-            action = getattr(self._class_states[state], kind)
-        except KeyError:
-            action = getattr(self._states[state], kind)
-        self._action_runner.run(action)
-
-    def _handle_action(self, action, *args, **kwargs):
-        self._action_runner.run(action, *args, **kwargs)
 
 
 class _Transition(object):
