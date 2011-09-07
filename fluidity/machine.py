@@ -37,7 +37,8 @@ StateMachineBase = MetaStateMachine('StateMachineBase', (object, ), {})
 class StateMachine(StateMachineBase):
 
     def __init__(self):
-        self.__class__._validate_machine_definitions()
+        self._bring_definitions_to_object_level()
+        self._validate_machine_definitions()
         if callable(self.initial_state):
             self.initial_state = self.initial_state()
         self._current_state_object = self._state_by_name(self.initial_state)
@@ -50,11 +51,14 @@ class StateMachine(StateMachineBase):
         obj._transitions = []
         return obj
 
-    @classmethod
-    def _validate_machine_definitions(cls):
-        if not getattr(cls, '_class_states', None) or len(cls._class_states) < 2:
+    def _bring_definitions_to_object_level(self):
+        self._states.update(self.__class__._class_states)
+        self._transitions.extend(self.__class__._class_transitions)
+
+    def _validate_machine_definitions(self):
+        if len(self._states) < 2:
             raise InvalidConfiguration('There must be at least two states')
-        if not getattr(cls, 'initial_state', None):
+        if not getattr(self, 'initial_state', None):
             raise InvalidConfiguration('There must exist an initial state')
 
     @classmethod
@@ -74,7 +78,7 @@ class StateMachine(StateMachineBase):
         self._current_state_object = state
 
     def _state_objects(self):
-        return list(self.__class__._class_states.values()) + list(self._states.values())
+        return list(self._states.values())
 
     def states(self):
         return [s.name for s in self._state_objects()]
@@ -108,8 +112,7 @@ class StateMachine(StateMachineBase):
                 return state
 
     def _transitions_by_name(self, name):
-        return filter(lambda transition: transition.event == name,
-            self.__class__._class_transitions + self._transitions)
+        return filter(lambda transition: transition.event == name, self._transitions)
 
     def _ensure_from_validity(self, transitions):
         valid_transitions = filter(
