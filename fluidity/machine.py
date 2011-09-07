@@ -174,11 +174,10 @@ class _Transition(object):
         return self.guard.check_for(machine)
 
     def run(self, machine, *args, **kwargs):
-        action_runner = _ActionRunner(machine)
-        action_runner.run(machine._current_state_object.exit)
+        machine._current_state_object.run_exit(machine)
         machine._new_state(self.to)
-        action_runner.run(self.to.enter)
-        action_runner.run(self.action, *args, **kwargs)
+        self.to.run_enter(machine)
+        _ActionRunner(machine).run(self.action, *args, **kwargs)
 
 
 class _Guard(object):
@@ -216,6 +215,12 @@ class _State(object):
         def state_getter(self_machine):
             return self_machine.current_state == self.name
         setattr(machine, 'is_%s' % self.name, state_getter.__get__(machine, machine.__class__))
+
+    def run_enter(self, machine):
+        _ActionRunner(machine).run(self.enter)
+
+    def run_exit(self, machine):
+        _ActionRunner(machine).run(self.exit)
 
 
 class _ActionRunner(object):
