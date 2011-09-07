@@ -73,9 +73,6 @@ class StateMachine(StateMachineBase):
 
     @classmethod
     def _add_class_transition(cls, event, from_, to, action, guard):
-#        cls._class_transitions.append(_Transition(event, from_, to, action, guard))
-#        this_event = cls._generate_event(event)
-#        setattr(cls, this_event.__name__, this_event)
         transition = _Transition(event, from_, to, action, guard)
         cls._class_transitions.append(transition)
         transition.generate_event_for(cls)
