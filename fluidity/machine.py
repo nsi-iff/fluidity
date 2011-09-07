@@ -1,4 +1,5 @@
 import re
+import inspect
 from fluidity.backwardscompat import callable
 
 # metaclass implementation idea from
@@ -72,44 +73,39 @@ class StateMachine(StateMachineBase):
 
     @classmethod
     def _add_class_transition(cls, event, from_, to, action, guard):
-        cls._class_transitions.append(_Transition(event, from_, to, action, guard))
-        this_event = cls._generate_event(event)
-        setattr(cls, this_event.__name__, this_event)
+#        cls._class_transitions.append(_Transition(event, from_, to, action, guard))
+#        this_event = cls._generate_event(event)
+#        setattr(cls, this_event.__name__, this_event)
+        transition = _Transition(event, from_, to, action, guard)
+        cls._class_transitions.append(transition)
+        transition.generate_event_for(cls)
 
     def add_transition(self, event, from_, to, action=None, guard=None):
-        self._transitions.append(_Transition(event, from_, to, action, guard))
-        this_event = self.__class__._generate_event(event)
-        setattr(self, this_event.__name__,
-            this_event.__get__(self, self.__class__))
+        transition = _Transition(event, from_, to, action, guard)
+        self._transitions.append(transition)
+        transition.generate_event_for(self)
+
+    def _process_transitions(self, event_name, *args, **kwargs):
+        transitions = self._transitions_by_name(event_name)
+        transitions = self._ensure_from_validity(transitions)
+        this_transition = self._check_guards(transitions)
+        self._run_transition(this_transition, *args, **kwargs)
 
     def _create_state_getters(self):
         for state in self._state_objects():
             state.create_getter_for(self)
-
-    @classmethod
-    def _generate_event(cls, name):
-        def generated_event(self, *args, **kwargs):
-            these_transitions = self._transitions_by_name(generated_event.__name__)
-            these_transitions = self._ensure_from_validity(these_transitions)
-            this_transition = self._check_guards(these_transitions)
-            self._run_transition(this_transition, *args, **kwargs)
-        generated_event.__doc__ = 'event %s' % name
-        generated_event.__name__ = name
-        return generated_event
 
     def _transitions_by_name(self, name):
         return filter(lambda transition: transition.event == name,
             self.__class__._class_transitions + self._transitions)
 
     def _ensure_from_validity(self, transitions):
-        valid_transitions = []
-        for transition in transitions:
-            from_ = _listize(transition.from_)
-            if self.current_state in from_:
-                valid_transitions.append(transition)
+        valid_transitions = filter(
+          lambda transition: transition.is_valid_from(self.current_state),
+          transitions)
         if len(valid_transitions) == 0:
             raise InvalidTransition("Cannot change from %s to %s" % (
-                self.current_state, transition.to))
+                self.current_state, transitions[-1].to))
         return valid_transitions
 
     def _check_guards(self, transitions):
@@ -188,6 +184,24 @@ class _Transition(object):
         self.to = to
         self.action = action
         self.guard = guard
+
+    def generate_event_for(self, machine):
+        this_event = self._generate_event(self.event)
+        if inspect.isclass(machine):
+            setattr(machine, self.event, this_event)
+        else:
+            setattr(machine, self.event,
+                this_event.__get__(machine, machine.__class__))
+
+    def _generate_event(self, name):
+        def generated_event(machine, *args, **kwargs):
+            these_transitions = machine._process_transitions(self.event, *args, **kwargs)
+        generated_event.__doc__ = 'event %s' % name
+        generated_event.__name__ = name
+        return generated_event
+
+    def is_valid_from(self, from_):
+        return from_ in _listize(self.from_)
 
 
 class _State(object):
