@@ -196,10 +196,10 @@ class _State(object):
         self.enter = enter
         self.exit = exit
 
-    def create_getter_for(self, objekt):
-        def state_getter(self_object):
-            return self_object.current_state == self.name
-        setattr(objekt, 'is_%s' % self.name, state_getter.__get__(objekt, objekt.__class__))
+    def create_getter_for(self, machine):
+        def state_getter(self_machine):
+            return self_machine.current_state == self.name
+        setattr(machine, 'is_%s' % self.name, state_getter.__get__(machine, machine.__class__))
 
 
 class _ActionRunner(object):
