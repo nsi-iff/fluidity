@@ -35,9 +35,9 @@ class FluidityEvent(unittest.TestCase):
 
     def test_it_ensures_event_order(self):
         machine = MyMachine()
-        machine.process |should| throw(InvalidTransition)
+        machine.process |should| throw(InvalidTransition, message='Cannot process from created')
         machine.queue()
-        machine.queue |should| throw(InvalidTransition)
+        machine.queue |should| throw(InvalidTransition, message='Cannot queue from waiting')
         machine.process |should_not| throw(Exception)
 
     def test_it_accepts_multiple_origin_states(self):

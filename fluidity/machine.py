@@ -104,8 +104,8 @@ class StateMachine(StateMachineBase):
           lambda transition: transition.is_valid_from(self.current_state),
           transitions)
         if len(valid_transitions) == 0:
-            raise InvalidTransition("Cannot change from %s to %s" % (
-                self.current_state, transitions[-1].to))
+            raise InvalidTransition("Cannot %s from %s" % (
+                transitions[0].event, self.current_state))
         return valid_transitions
 
     def _check_guards(self, transitions):
