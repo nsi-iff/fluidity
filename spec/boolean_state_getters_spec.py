@@ -12,7 +12,7 @@ class JumperGuy(StateMachine):
 
 class BooleanStateGettersSpec(unittest.TestCase):
 
-    def it_has_boolean_getters_for_the_states(self):
+    def test_it_has_boolean_getters_for_the_states(self):
         guy = JumperGuy()
         guy |should| respond_to('is_looking')
         guy |should| respond_to('is_falling')
@@ -24,7 +24,7 @@ class BooleanStateGettersSpec(unittest.TestCase):
         guy |should_not| be_looking
         guy |should| be_falling
 
-    def it_has_boolean_getters_for_individual_states(self):
+    def test_it_has_boolean_getters_for_individual_states(self):
         guy = JumperGuy()
         guy.add_state('squashed')
         guy |should| respond_to('is_squashed')
@@ -34,4 +34,8 @@ class BooleanStateGettersSpec(unittest.TestCase):
         guy.jump()
         guy.land()
         guy |should| be_squashed
+
+
+if __name__ == '__main__':
+    unittest.main()
 
