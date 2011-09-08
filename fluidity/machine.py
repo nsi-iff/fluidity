@@ -73,7 +73,7 @@ class StateMachine(StateMachineBase):
 
     def add_state(self, name, enter=None, exit=None):
         state = _State(name, enter, exit, machine=self)
-        state.create_getter()
+        setattr(self, state.getter_name(), state.getter_method())
         self._states[name] = state
 
     def _current_state_name(self):
@@ -95,13 +95,13 @@ class StateMachine(StateMachineBase):
         transition = _Transition(event, [cls._class_states[s] for s in _listize(from_)],
             cls._class_states[to], action, guard)
         cls._class_transitions.append(transition)
-        transition.generate_event_for(cls)
+        setattr(cls, event, transition.event_method())
 
     def add_transition(self, event, from_, to, action=None, guard=None):
         transition = _Transition(event, [self._state_by_name(s) for s in _listize(from_)],
             self._state_by_name(to), action, guard, machine=self)
         self._transitions.append(transition)
-        transition.generate_event_for(self)
+        setattr(self, event, transition.event_method().__get__(self, self.__class__))
 
     def _process_transitions(self, event_name, *args, **kwargs):
         transitions = self._transitions_by_name(event_name)
@@ -111,7 +111,7 @@ class StateMachine(StateMachineBase):
 
     def _create_state_getters(self):
         for state in self._state_objects():
-            state.create_getter()
+            setattr(self, state.getter_name(), state.getter_method())
 
     def _state_by_name(self, name):
         for state in self._state_objects():
@@ -152,19 +152,11 @@ class _Transition(object):
         self.guard = _Guard(guard)
         self.machine = machine
 
-    def generate_event_for(self, machine):
-        this_event = self._generate(self.event)
-        if inspect.isclass(machine):
-            setattr(machine, self.event, this_event)
-        else:
-            setattr(machine, self.event,
-                this_event.__get__(machine, machine.__class__))
-
-    def _generate(self, name):
+    def event_method(self):
         def generated_event(machine, *args, **kwargs):
             these_transitions = machine._process_transitions(self.event, *args, **kwargs)
-        generated_event.__doc__ = 'event %s' % name
-        generated_event.__name__ = name
+        generated_event.__doc__ = 'event %s' % self.event
+        generated_event.__name__ = self.event
         return generated_event
 
     def is_valid_from(self, from_):
@@ -219,11 +211,13 @@ class _State(object):
         self.exit = exit
         self.machine = machine
 
-    def create_getter(self):
+    def getter_name(self):
+        return 'is_%s' % self.name
+
+    def getter_method(self):
         def state_getter(self_machine):
             return self_machine.current_state == self.name
-        setattr(self.machine, 'is_%s' % self.name,
-            state_getter.__get__(self.machine, self.machine.__class__))
+        return state_getter.__get__(self.machine, self.machine.__class__)
 
     def run_enter(self):
         _ActionRunner(self.machine).run(self.enter)
