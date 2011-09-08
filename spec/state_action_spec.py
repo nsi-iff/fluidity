@@ -64,10 +64,10 @@ class FluidityAction(unittest.TestCase):
         machine = ActionMachine()
         def post_create_expectation(_self):
             _self.count +=1
-            _self.count |should| be(1)
+            _self.count |should| equal_to(1)
         def pre_wait_expectation(_self):
             _self.count += 1
-            _self.count |should| be(2)
+            _self.count |should| equal_to(2)
         machine.post_create_expectation = \
             post_create_expectation.__get__(machine, ActionMachine)
         machine.pre_wait_expectation = \
