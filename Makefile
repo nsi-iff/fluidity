@@ -11,10 +11,16 @@ should-dsl:
 coverage_py:
 	@python -c 'import coverage' 2>/dev/null || pip install coverage
 
-test_deps: specloud should-dsl coverage_py
+test_deps: specloud should-dsl
 
-coverage: test_deps
+coverage: test_deps coverage_py
 	@nosetests spec/*.py -s --with-coverage --cover-erase --cover-inclusive --cover-package=fluidity
+
+tox:
+	@hash tox 2>/dev/null || pip install tox
+
+compatible: test_deps tox
+	@tox
 
 test: test_deps unit
 
