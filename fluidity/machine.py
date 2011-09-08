@@ -254,10 +254,7 @@ class _ActionRunner(object):
         try:
             action(*args, **kwargs)
         except TypeError:
-            if len(args) > 0 and args[0] == self:
-                action(self.machine)
-            else:
-                action()
+            action()
 
 
 class InvalidConfiguration(Exception):

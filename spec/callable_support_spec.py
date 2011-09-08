@@ -3,20 +3,35 @@ from should_dsl import should
 from fluidity import StateMachine, state, transition
 from fluidity import GuardNotSatisfied
 
+footsteps = []
+
+
+class Foo:
+  def bar(self):
+      footsteps.append('exit looking')
+
+
+foo = Foo()
+
+def enter_falling_function():
+    footsteps.append('enter falling')
+
 
 class JumperGuy(StateMachine):
-    state('looking', enter=lambda jumper: jumper.footsteps.append('enter looking'),
-                     exit=lambda jumper: jumper.footsteps.append('exit looking'))
-    state('falling', enter=lambda jumper: jumper.footsteps.append('enter falling'))
+    state('looking', enter=lambda jumper: jumper.append('enter looking'),
+                     exit=foo.bar)
+    state('falling', enter=enter_falling_function)
     initial_state = 'looking'
 
     transition(from_='looking', event='jump', to='falling',
-               action=lambda jumper: jumper.footsteps.append('action jump'),
-               guard=lambda jumper: jumper.footsteps.append('guard jump') is None)
+               action=lambda jumper: jumper.append('action jump'),
+               guard=lambda jumper: jumper.append('guard jump') is None)
 
     def __init__(self):
-        self.footsteps = []
         StateMachine.__init__(self)
+
+    def append(self, text):
+        footsteps.append(text)
 
 
 class CallableSupport(unittest.TestCase):
@@ -25,8 +40,8 @@ class CallableSupport(unittest.TestCase):
         '''every callback can be a callable'''
         guy = JumperGuy()
         guy.jump()
-        guy |should| have(5).footsteps
-        guy.footsteps |should| include_all_of([
+        footsteps |should| have(5).elements
+        footsteps |should| include_all_of([
             'enter looking', 'exit looking', 'enter falling',
             'action jump', 'guard jump'])
 
