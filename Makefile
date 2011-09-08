@@ -8,9 +8,17 @@ specloud:
 should-dsl:
 	@python -c 'import should_dsl' 2>/dev/null || pip install http://github.com/hugobr/should-dsl/tarball/master
 
-test: unit
+coverage_py:
+	@python -c 'import coverage' 2>/dev/null || pip install coverage
 
-unit: specloud should-dsl
+test_deps: specloud should-dsl coverage_py
+
+coverage: test_deps
+	@nosetests spec/*.py -s --with-coverage --cover-erase --cover-inclusive --cover-package=fluidity
+
+test: test_deps unit
+
+unit:
 	@echo =======================================
 	@echo ========= Running unit specs ==========
 	@specloud spec
