@@ -1,4 +1,5 @@
 import re
+import inspect
 from fluidity.backwardscompat import callable
 
 # metaclass implementation idea from
@@ -21,10 +22,10 @@ class MetaStateMachine(type):
         Machine = super(MetaStateMachine, cls).__new__(cls, name, bases, dictionary)
         Machine._class_transitions = []
         Machine._class_states = {}
-        for i in _transition_gatherer:
-            Machine._add_class_transition(*i)
         for s in _state_gatherer:
             Machine._add_class_state(*s)
+        for i in _transition_gatherer:
+            Machine._add_class_transition(*i)
         _transition_gatherer = []
         _state_gatherer = []
         return Machine
@@ -36,11 +37,13 @@ StateMachineBase = MetaStateMachine('StateMachineBase', (object, ), {})
 class StateMachine(StateMachineBase):
 
     def __init__(self):
-        self.__class__._validate_machine_definitions()
+        self._bring_definitions_to_object_level()
+        self._inject_into_parts()
+        self._validate_machine_definitions()
         if callable(self.initial_state):
             self.initial_state = self.initial_state()
-        self.current_state = self.initial_state
-        self._handle_state_action(self.initial_state, 'enter')
+        self._current_state_object = self._state_by_name(self.initial_state)
+        self._current_state_object.run_enter()
         self._create_state_getters()
 
     def __new__(cls, *args, **kwargs):
@@ -49,11 +52,19 @@ class StateMachine(StateMachineBase):
         obj._transitions = []
         return obj
 
-    @classmethod
-    def _validate_machine_definitions(cls):
-        if not getattr(cls, '_class_states', None) or len(cls._class_states) < 2:
+    def _bring_definitions_to_object_level(self):
+        self._states.update(self.__class__._class_states)
+        self._transitions.extend(self.__class__._class_transitions)
+
+    def _inject_into_parts(self):
+        for collection in [self._states.values(), self._transitions]:
+            for component in collection:
+                component.machine = self
+
+    def _validate_machine_definitions(self):
+        if len(self._states) < 2:
             raise InvalidConfiguration('There must be at least two states')
-        if not getattr(cls, 'initial_state', None):
+        if not getattr(self, 'initial_state', None):
             raise InvalidConfiguration('There must exist an initial state')
 
     @classmethod
@@ -61,64 +72,68 @@ class StateMachine(StateMachineBase):
         cls._class_states[name] = _State(name, enter, exit)
 
     def add_state(self, name, enter=None, exit=None):
-        self._states[name] = _State(name, enter, exit)
-        self._create_state_getter_for(name)
+        state = _State(name, enter, exit, machine=self)
+        state.create_getter()
+        self._states[name] = state
+
+    def _current_state_name(self):
+        return self._current_state_object.name
+
+    current_state = property(_current_state_name)
+
+    def _new_state(self, state):
+        self._current_state_object = state
+
+    def _state_objects(self):
+        return list(self._states.values())
 
     def states(self):
-        return list(self.__class__._class_states.keys()) + list(self._states.keys())
+        return [s.name for s in self._state_objects()]
 
     @classmethod
     def _add_class_transition(cls, event, from_, to, action, guard):
-        cls._class_transitions.append(_Transition(event, from_, to, action, guard))
-        this_event = cls._generate_event(event)
-        setattr(cls, this_event.__name__, this_event)
+        transition = _Transition(event, [cls._class_states[s] for s in _listize(from_)],
+            cls._class_states[to], action, guard)
+        cls._class_transitions.append(transition)
+        transition.generate_event_for(cls)
 
     def add_transition(self, event, from_, to, action=None, guard=None):
-        self._transitions.append(_Transition(event, from_, to, action, guard))
-        this_event = self.__class__._generate_event(event)
-        setattr(self, this_event.__name__,
-            this_event.__get__(self, self.__class__))
+        transition = _Transition(event, [self._state_by_name(s) for s in _listize(from_)],
+            self._state_by_name(to), action, guard, machine=self)
+        self._transitions.append(transition)
+        transition.generate_event_for(self)
 
+    def _process_transitions(self, event_name, *args, **kwargs):
+        transitions = self._transitions_by_name(event_name)
+        transitions = self._ensure_from_validity(transitions)
+        this_transition = self._check_guards(transitions)
+        this_transition.run(*args, **kwargs)
 
     def _create_state_getters(self):
-        for state_name in self.states():
-            self._create_state_getter_for(state_name)
+        for state in self._state_objects():
+            state.create_getter()
 
-    def _create_state_getter_for(self, state_name):
-        def state_getter(self_object):
-            return self_object.current_state == state_name
-        setattr(self, 'is_%s' % state_name, state_getter.__get__(self, self.__class__))
-
-    @classmethod
-    def _generate_event(cls, name):
-        def generated_event(self, *args, **kwargs):
-            these_transitions = self._transitions_by_name(generated_event.__name__)
-            these_transitions = self._ensure_from_validity(these_transitions)
-            this_transition = self._check_guards(these_transitions)
-            self._run_transition(this_transition, *args, **kwargs)
-        generated_event.__doc__ = 'event %s' % name
-        generated_event.__name__ = name
-        return generated_event
+    def _state_by_name(self, name):
+        for state in self._state_objects():
+            if state.name == name:
+                return state
 
     def _transitions_by_name(self, name):
-        return filter(lambda transition: transition.event == name,
-            self.__class__._class_transitions + self._transitions)
+        return list(filter(lambda transition: transition.event == name, self._transitions))
 
     def _ensure_from_validity(self, transitions):
-        valid_transitions = []
-        for transition in transitions:
-            from_ = _listize(transition.from_)
-            if self.current_state in from_:
-                valid_transitions.append(transition)
+        valid_transitions = list(filter(
+          lambda transition: transition.is_valid_from(self._current_state_object),
+          transitions))
         if len(valid_transitions) == 0:
-            raise InvalidTransition("Cannot change from %s to %s" % (
-                self.current_state, transition.to))
+            raise InvalidTransition("Cannot %s from %s" % (
+                transitions[0].event, self.current_state))
         return valid_transitions
 
     def _check_guards(self, transitions):
         allowed_transitions = []
         for transition in transitions:
-            if self._check_guard(transition.guard):
+            if transition.check_guard():
                 allowed_transitions.append(transition)
         if len(allowed_transitions) == 0:
             raise GuardNotSatisfied("Guard is not satisfied for this transition")
@@ -126,23 +141,103 @@ class StateMachine(StateMachineBase):
             raise ForkedTransition("More than one transition was allowed for this event")
         return allowed_transitions[0]
 
-    def _run_transition(self, transition, *args, **kwargs):
-        self._handle_state_action(self.current_state, 'exit')
-        self.current_state = transition.to
-        self._handle_state_action(transition.to, 'enter')
-        self._handle_action(transition.action, *args, **kwargs)
 
-    def _handle_state_action(self, state, kind):
-        try:
-            action = getattr(self._class_states[state], kind)
-        except KeyError:
-            action = getattr(self._states[state], kind)
-        self._run_action_or_list(action)
+class _Transition(object):
 
-    def _handle_action(self, action, *args, **kwargs):
-        self._run_action_or_list(action, *args, **kwargs)
+    def __init__(self, event, from_, to, action, guard, machine=None):
+        self.event = event
+        self.from_ = from_
+        self.to = to
+        self.action = action
+        self.guard = _Guard(guard)
+        self.machine = machine
 
-    def _run_action_or_list(self, action_param, *args, **kwargs):
+    def generate_event_for(self, machine):
+        this_event = self._generate(self.event)
+        if inspect.isclass(machine):
+            setattr(machine, self.event, this_event)
+        else:
+            setattr(machine, self.event,
+                this_event.__get__(machine, machine.__class__))
+
+    def _generate(self, name):
+        def generated_event(machine, *args, **kwargs):
+            these_transitions = machine._process_transitions(self.event, *args, **kwargs)
+        generated_event.__doc__ = 'event %s' % name
+        generated_event.__name__ = name
+        return generated_event
+
+    def is_valid_from(self, from_):
+        return from_ in _listize(self.from_)
+
+    def check_guard(self):
+        return self.guard.check()
+
+    def run(self, *args, **kwargs):
+        self.machine._current_state_object.run_exit()
+        self.machine._new_state(self.to)
+        self.to.run_enter()
+        _ActionRunner(self.machine).run(self.action, *args, **kwargs)
+
+    def _get_machine(self): return self._machine
+    def _set_machine(self, machine):
+        self._machine = machine
+        self.guard.machine = machine
+
+    machine = property(_get_machine, _set_machine)
+
+
+class _Guard(object):
+
+    def __init__(self, action):
+        self.action = action
+
+    def check(self):
+        if self.action is None:
+            return True
+        items = _listize(self.action)
+        result = True
+        for item in items:
+            result = result and self._evaluate(item)
+        return result
+
+    def _evaluate(self, item):
+        if callable(item):
+            return item(self.machine)
+        else:
+            guard = getattr(self.machine, item)
+            if callable(guard):
+                guard = guard()
+            return guard
+
+
+class _State(object):
+
+    def __init__(self, name, enter, exit, machine=None):
+        self.name = name
+        self.enter = enter
+        self.exit = exit
+        self.machine = machine
+
+    def create_getter(self):
+        def state_getter(self_machine):
+            return self_machine.current_state == self.name
+        setattr(self.machine, 'is_%s' % self.name,
+            state_getter.__get__(self.machine, self.machine.__class__))
+
+    def run_enter(self):
+        _ActionRunner(self.machine).run(self.enter)
+
+    def run_exit(self):
+        _ActionRunner(self.machine).run(self.exit)
+
+
+class _ActionRunner(object):
+
+    def __init__(self, machine):
+        self.machine = machine
+
+    def run(self, action_param, *args, **kwargs):
         if not action_param:
             return
         action_items = _listize(action_param)
@@ -151,54 +246,18 @@ class StateMachine(StateMachineBase):
 
     def _run_action(self, action, *args, **kwargs):
         if callable(action):
-            self._try_to_run_with_args(action, self, *args, **kwargs)
+            self._try_to_run_with_args(action, self.machine, *args, **kwargs)
         else:
-            self._try_to_run_with_args(getattr(self, action), *args, **kwargs)
+            self._try_to_run_with_args(getattr(self.machine, action), *args, **kwargs)
 
     def _try_to_run_with_args(self, action, *args, **kwargs):
         try:
             action(*args, **kwargs)
         except TypeError:
             if len(args) > 0 and args[0] == self:
-                action(self)
+                action(self.machine)
             else:
                 action()
-
-    def _check_guard(self, guard_param):
-        if guard_param is None:
-            return True
-        guard_items = _listize(guard_param)
-        result = True
-        for guard_item in guard_items:
-            result = result and self._evaluate_guard(guard_item)
-        return result
-
-    def _evaluate_guard(self, guard):
-        if callable(guard):
-            return guard(self)
-        else:
-            guard = getattr(self, guard)
-            if callable(guard):
-                guard = guard()
-            return guard
-
-
-class _Transition(object):
-
-    def __init__(self, event, from_, to, action, guard):
-        self.event = event
-        self.from_ = from_
-        self.to = to
-        self.action = action
-        self.guard = guard
-
-
-class _State(object):
-
-    def __init__(self, name, enter, exit):
-        self.name = name
-        self.enter = enter
-        self.exit = exit
 
 
 class InvalidConfiguration(Exception):
