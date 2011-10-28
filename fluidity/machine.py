@@ -76,12 +76,19 @@ class StateMachine(StateMachineBase):
         setattr(self, state.getter_name(), state.getter_method())
         self._states[name] = state
 
+    def changing_state(self, from_, to):
+        """
+        This method is called whenever a state change is executed
+        """
+        pass
+
     def _current_state_name(self):
         return self._current_state_object.name
 
     current_state = property(_current_state_name)
 
     def _new_state(self, state):
+        self.changing_state(self._current_state_object.name, state.name)
         self._current_state_object = state
 
     def _state_objects(self):
