@@ -43,7 +43,7 @@ class StateMachine(StateMachineBase):
         if callable(self.initial_state):
             self.initial_state = self.initial_state()
         self._current_state_object = self._state_by_name(self.initial_state)
-        self._current_state_object.run_enter()
+        self._current_state_object.run_enter(self)
         self._create_state_getters()
 
     def __new__(cls, *args, **kwargs):
@@ -72,20 +72,20 @@ class StateMachine(StateMachineBase):
         cls._class_states[name] = _State(name, enter, exit)
 
     def add_state(self, name, enter=None, exit=None):
-        state = _State(name, enter, exit, machine=self)
-        setattr(self, state.getter_name(), state.getter_method())
+        state = _State(name, enter, exit)
+        setattr(self, state.getter_name(), state.getter_method().__get__(self, self.__class__))
         self._states[name] = state
+
+    def _current_state_name(self):
+        return self._current_state_object.name
+
+    current_state = property(_current_state_name)
 
     def changing_state(self, from_, to):
         """
         This method is called whenever a state change is executed
         """
         pass
-
-    def _current_state_name(self):
-        return self._current_state_object.name
-
-    current_state = property(_current_state_name)
 
     def _new_state(self, state):
         self.changing_state(self._current_state_object.name, state.name)
@@ -106,7 +106,7 @@ class StateMachine(StateMachineBase):
 
     def add_transition(self, event, from_, to, action=None, guard=None):
         transition = _Transition(event, [self._state_by_name(s) for s in _listize(from_)],
-            self._state_by_name(to), action, guard, machine=self)
+            self._state_by_name(to), action, guard)
         self._transitions.append(transition)
         setattr(self, event, transition.event_method().__get__(self, self.__class__))
 
@@ -114,11 +114,11 @@ class StateMachine(StateMachineBase):
         transitions = self._transitions_by_name(event_name)
         transitions = self._ensure_from_validity(transitions)
         this_transition = self._check_guards(transitions)
-        this_transition.run(*args, **kwargs)
+        this_transition.run(self, *args, **kwargs)
 
     def _create_state_getters(self):
         for state in self._state_objects():
-            setattr(self, state.getter_name(), state.getter_method())
+            setattr(self, state.getter_name(), state.getter_method().__get__(self, self.__class__))
 
     def _state_by_name(self, name):
         for state in self._state_objects():
@@ -140,7 +140,7 @@ class StateMachine(StateMachineBase):
     def _check_guards(self, transitions):
         allowed_transitions = []
         for transition in transitions:
-            if transition.check_guard():
+            if transition.check_guard(self):
                 allowed_transitions.append(transition)
         if len(allowed_transitions) == 0:
             raise GuardNotSatisfied("Guard is not satisfied for this transition")
@@ -151,13 +151,12 @@ class StateMachine(StateMachineBase):
 
 class _Transition(object):
 
-    def __init__(self, event, from_, to, action, guard, machine=None):
+    def __init__(self, event, from_, to, action, guard):
         self.event = event
         self.from_ = from_
         self.to = to
         self.action = action
         self.guard = _Guard(guard)
-        self.machine = machine
 
     def event_method(self):
         def generated_event(machine, *args, **kwargs):
@@ -169,21 +168,14 @@ class _Transition(object):
     def is_valid_from(self, from_):
         return from_ in _listize(self.from_)
 
-    def check_guard(self):
-        return self.guard.check()
+    def check_guard(self, machine):
+        return self.guard.check(machine)
 
-    def run(self, *args, **kwargs):
-        self.machine._current_state_object.run_exit()
-        self.machine._new_state(self.to)
-        self.to.run_enter()
-        _ActionRunner(self.machine).run(self.action, *args, **kwargs)
-
-    def _get_machine(self): return self._machine
-    def _set_machine(self, machine):
-        self._machine = machine
-        self.guard.machine = machine
-
-    machine = property(_get_machine, _set_machine)
+    def run(self, machine, *args, **kwargs):
+        machine._current_state_object.run_exit(machine)
+        machine._new_state(self.to)
+        self.to.run_enter(machine)
+        _ActionRunner(machine).run(self.action, *args, **kwargs)
 
 
 class _Guard(object):
@@ -191,20 +183,20 @@ class _Guard(object):
     def __init__(self, action):
         self.action = action
 
-    def check(self):
+    def check(self, machine):
         if self.action is None:
             return True
         items = _listize(self.action)
         result = True
         for item in items:
-            result = result and self._evaluate(item)
+            result = result and self._evaluate(machine, item)
         return result
 
-    def _evaluate(self, item):
+    def _evaluate(self, machine, item):
         if callable(item):
-            return item(self.machine)
+            return item(machine)
         else:
-            guard = getattr(self.machine, item)
+            guard = getattr(machine, item)
             if callable(guard):
                 guard = guard()
             return guard
@@ -212,11 +204,10 @@ class _Guard(object):
 
 class _State(object):
 
-    def __init__(self, name, enter, exit, machine=None):
+    def __init__(self, name, enter, exit):
         self.name = name
         self.enter = enter
         self.exit = exit
-        self.machine = machine
 
     def getter_name(self):
         return 'is_%s' % self.name
@@ -224,13 +215,13 @@ class _State(object):
     def getter_method(self):
         def state_getter(self_machine):
             return self_machine.current_state == self.name
-        return state_getter.__get__(self.machine, self.machine.__class__)
+        return state_getter
 
-    def run_enter(self):
-        _ActionRunner(self.machine).run(self.enter)
+    def run_enter(self, machine):
+        _ActionRunner(machine).run(self.enter)
 
-    def run_exit(self):
-        _ActionRunner(self.machine).run(self.exit)
+    def run_exit(self, machine):
+        _ActionRunner(machine).run(self.exit)
 
 
 class _ActionRunner(object):
